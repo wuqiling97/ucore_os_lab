@@ -145,8 +145,8 @@ $(kernel): tools/kernel.ld
 $(kernel): $(KOBJS)
 	@echo + ld $@
 	$(V)$(LD) $(LDFLAGS) -T tools/kernel.ld -o $@ $(KOBJS)
-	@$(OBJDUMP) -S $@ > $(call asmfile,kernel)
-	@$(OBJDUMP) -t $@ | $(SED) '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(call symfile,kernel)
+	$(V)$(OBJDUMP) -S $@ > $(call asmfile,kernel)
+	$(V)$(OBJDUMP) -t $@ | $(SED) '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(call symfile,kernel)
 
 $(call create_target,kernel)
 
@@ -161,9 +161,9 @@ bootblock = $(call totarget,bootblock)
 $(bootblock): $(call toobj,$(bootfiles)) | $(call totarget,sign)
 	@echo + ld $@
 	$(V)$(LD) $(LDFLAGS) -N -e start -Ttext 0x7C00 $^ -o $(call toobj,bootblock)
-	@$(OBJDUMP) -S $(call objfile,bootblock) > $(call asmfile,bootblock)
-	@$(OBJCOPY) -S -O binary $(call objfile,bootblock) $(call outfile,bootblock)
-	@$(call totarget,sign) $(call outfile,bootblock) $(bootblock)
+	$(V)$(OBJDUMP) -S $(call objfile,bootblock) > $(call asmfile,bootblock)
+	$(V)$(OBJCOPY) -S -O binary $(call objfile,bootblock) $(call outfile,bootblock)
+	$(V)$(call totarget,sign) $(call outfile,bootblock) $(bootblock)
 
 $(call create_target,bootblock)
 
@@ -217,7 +217,7 @@ qemu-nox: $(UCOREIMG)
 	$(V)$(QEMU)   -no-reboot -serial mon:stdio -hda $< -nographic
 TERMINAL        :=gnome-terminal
 debug: $(UCOREIMG)
-	$(V)$(QEMU) -S -s -parallel stdio -hda $< -serial null &
+	$(V)$(QEMU) -d in_asm -D $(BINDIR)/q.log -S -s -parallel stdio -hda $< -serial null &
 	$(V)sleep 2
 	$(V)$(TERMINAL) -e "gdb -q -tui -x tools/gdbinit"
 	
@@ -258,8 +258,8 @@ handin: packall
 	@echo Please visit http://learn.tsinghua.edu.cn and upload $(HANDIN). Thanks!
 
 packall: clean
-	@$(RM) -f $(HANDIN)
-	@tar -czf $(HANDIN) `find . -type f -o -type d | grep -v '^\.*$$' | grep -vF '$(HANDIN)'`
+	$(V)$(RM) -f $(HANDIN)
+	$(V)tar -czf $(HANDIN) `find . -type f -o -type d | grep -v '^\.*$$' | grep -vF '$(HANDIN)'`
 
 tags:
 	@echo TAGS ALL
