@@ -196,7 +196,7 @@ default_free_pages(struct Page *base, size_t n) {
         }
         le = list_next(le);
     }
-    list_add_before(&(p->page_link), &(base->page_link));
+    list_add_before(le, &(base->page_link));
 }
 
 static size_t

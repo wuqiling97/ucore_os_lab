@@ -387,7 +387,7 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
         if(page == NULL) return NULL;
         set_page_ref(page, 1);
         uintptr_t phy_addr = page2pa(page);
-        memset((void*)phy_addr, 0, PGSIZE);
+        memset(KADDR(phy_addr), 0, PGSIZE);
         *pde_ptr = phy_addr | PTE_P | PTE_W | PTE_U;
     }
     return (pte_t*)KADDR(PDE_ADDR(*pde_ptr)) + PTX(la);
