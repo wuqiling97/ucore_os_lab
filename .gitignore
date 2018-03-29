@@ -22,3 +22,6 @@ disk0
 *.orig
 /.metadata/
 .settings/
+
+.vscode/
+.idea/
