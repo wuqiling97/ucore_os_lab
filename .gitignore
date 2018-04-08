@@ -19,9 +19,10 @@ a.out
 *.exe
 chytesting
 disk0
-*.orig
 /.metadata/
 .settings/
+*.orig
+*.patch
 
 .vscode/
 .idea/
