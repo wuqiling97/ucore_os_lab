@@ -32,11 +32,11 @@ list_entry_t pra_list_head;
  */
 static int
 _fifo_init_mm(struct mm_struct *mm)
-{     
-     list_init(&pra_list_head);
-     mm->sm_priv = &pra_list_head;
-     //cprintf(" mm->sm_priv %x in fifo_init_mm\n",mm->sm_priv);
-     return 0;
+{
+    list_init(&pra_list_head);
+    mm->sm_priv = &pra_list_head;
+    //cprintf(" mm->sm_priv %x in fifo_init_mm\n",mm->sm_priv);
+    return 0;
 }
 /*
  * (3)_fifo_map_swappable: According FIFO PRA, we should link the most recent arrival page at the back of pra_list_head qeueue
@@ -48,9 +48,10 @@ _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int
     list_entry_t *entry=&(page->pra_page_link);
  
     assert(entry != NULL && head != NULL);
-    //record the page access situlation
+    //record the page access situation
     /*LAB3 EXERCISE 2: YOUR CODE*/ 
     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
+    list_add_after(head, entry);
     return 0;
 }
 /*
@@ -60,14 +61,19 @@ _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int
 static int
 _fifo_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick)
 {
-     list_entry_t *head=(list_entry_t*) mm->sm_priv;
-         assert(head != NULL);
-     assert(in_tick==0);
-     /* Select the victim */
-     /*LAB3 EXERCISE 2: YOUR CODE*/ 
-     //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
-     //(2)  assign the value of *ptr_page to the addr of this page
-     return 0;
+    list_entry_t *head = (list_entry_t *)mm->sm_priv;
+    assert(head != NULL);
+    assert(in_tick == 0);
+    /* Select the victim */
+    /*LAB3 EXERCISE 2: YOUR CODE*/
+    //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
+    //(2)  assign the value of *ptr_page to the addr of this page
+    list_entry_t* victim_entry = head->prev;
+    list_del(victim_entry);
+    struct Page* page = le2page(victim_entry, pra_page_link);
+    *ptr_page = page;
+
+    return 0;
 }
 
 static int
@@ -129,15 +135,14 @@ static int
 _fifo_tick_event(struct mm_struct *mm)
 { return 0; }
 
-
 struct swap_manager swap_manager_fifo =
 {
-     .name            = "fifo swap manager",
-     .init            = &_fifo_init,
-     .init_mm         = &_fifo_init_mm,
-     .tick_event      = &_fifo_tick_event,
-     .map_swappable   = &_fifo_map_swappable,
-     .set_unswappable = &_fifo_set_unswappable,
-     .swap_out_victim = &_fifo_swap_out_victim,
-     .check_swap      = &_fifo_check_swap,
+    .name = "fifo swap manager",
+    .init = &_fifo_init,
+    .init_mm = &_fifo_init_mm,
+    .tick_event = &_fifo_tick_event,
+    .map_swappable = &_fifo_map_swappable,
+    .set_unswappable = &_fifo_set_unswappable,
+    .swap_out_victim = &_fifo_swap_out_victim,
+    .check_swap = &_fifo_check_swap,
 };
