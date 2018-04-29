@@ -23,6 +23,7 @@ disk0
 .settings/
 *.orig
 *.patch
+*.rej
 
 .vscode/
 .idea/
