@@ -29,17 +29,19 @@
  * special struct (such as struct `page`), using the following MACROs: `le2page`
  * (in memlayout.h), (and in future labs: `le2vma` (in vmm.h), `le2proc` (in
  * proc.h), etc).
+ * 
  * (2) `default_init`:
  *  You can reuse the demo `default_init` function to initialize the `free_list`
  * and set `nr_free` to 0. `free_list` is used to record the free memory blocks.
  * `nr_free` is the total number of the free memory blocks.
+ * 
  * (3) `default_init_memmap`:
  *  CALL GRAPH: `kern_init` --> `pmm_init` --> `page_init` --> `init_memmap` -->
  * `pmm_manager` --> `init_memmap`.
  *  This function is used to initialize a free block (with parameter `addr_base`,
  * `page_number`). In order to initialize a free block, firstly, you should
  * initialize each page (defined in memlayout.h) in this free block. This
- * procedure includes:
+ * procedure includes: (p represent each page)
  *  - Setting the bit `PG_property` of `p->flags`, which means this page is
  * valid. P.S. In function `pmm_init` (in pmm.c), the bit `PG_reserved` of
  * `p->flags` is already set.
@@ -51,6 +53,7 @@
  *  After that, We can use `p->page_link` to link this page into `free_list`.
  * (e.g.: `list_add_before(&free_list, &(p->page_link));` )
  *  Finally, we should update the sum of the free memory blocks: `nr_free += n`.
+ * 
  * (4) `default_alloc_pages`:
  *  Search for the first free block (block size >= n) in the free list and reszie
  * the block found, returning the address of this block as the address required by
@@ -70,6 +73,7 @@
  *      >= n, whose first `n` pages can be malloced. Some flag bits of this page
  *      should be set as the following: `PG_reserved = 1`, `PG_property = 0`.
  *      Then, unlink the pages from `free_list`.
+ * TODO: `PG_reserved = 1` may be bullshit
  *          (4.1.2.1)
  *              If `p->property > n`, we should re-calculate number of the rest
  *          pages of this free block. (e.g.: `le2page(le,page_link))->property
@@ -80,6 +84,7 @@
  *              return `p`.
  *      (4.2)
  *          If we can not find a free block with its size >=n, then return NULL.
+ * 
  * (5) `default_free_pages`:
  *  re-link the pages into the free list, and may merge small free blocks into
  * the big ones.
@@ -95,6 +100,7 @@
  */
 free_area_t free_area;
 
+// free_list is circular list
 #define free_list (free_area.free_list)
 #define nr_free (free_area.nr_free)
 
@@ -116,7 +122,7 @@ default_init_memmap(struct Page *base, size_t n) {
     base->property = n;
     SetPageProperty(base);
     nr_free += n;
-    list_add(&free_list, &(base->page_link));
+    list_add_before(&free_list, &(base->page_link));
 }
 
 static struct Page *
@@ -127,6 +133,7 @@ default_alloc_pages(size_t n) {
     }
     struct Page *page = NULL;
     list_entry_t *le = &free_list;
+    // search free list for page block whose size >= n
     while ((le = list_next(le)) != &free_list) {
         struct Page *p = le2page(le, page_link);
         if (p->property >= n) {
@@ -134,15 +141,18 @@ default_alloc_pages(size_t n) {
             break;
         }
     }
+    // change page properties
     if (page != NULL) {
-        list_del(&(page->page_link));
         if (page->property > n) {
-            struct Page *p = page + n;
+            struct Page *p = page + n; // ???
             p->property = page->property - n;
-            list_add(&free_list, &(p->page_link));
-    }
+            SetPageProperty(p);
+            list_add_after(&(page->page_link), &(p->page_link));
+        }
+        list_del(&(page->page_link));
         nr_free -= n;
         ClearPageProperty(page);
+        // SetPageReserved(page);
     }
     return page;
 }
@@ -162,6 +172,7 @@ default_free_pages(struct Page *base, size_t n) {
     while (le != &free_list) {
         p = le2page(le, page_link);
         le = list_next(le);
+        // search high, low addr to merge fragments
         if (base + base->property == p) {
             base->property += p->property;
             ClearPageProperty(p);
@@ -175,7 +186,17 @@ default_free_pages(struct Page *base, size_t n) {
         }
     }
     nr_free += n;
-    list_add(&free_list, &(base->page_link));
+    // list_add(&free_list, &(base->page_link));
+    le = list_next(&free_list);
+    while(le != &free_list) {
+        p = le2page(le, page_link);
+        if(base + base->property <= p) {
+            // find first page whose addr > base's end
+            break;
+        }
+        le = list_next(le);
+    }
+    list_add_before(le, &(base->page_link));
 }
 
 static size_t
