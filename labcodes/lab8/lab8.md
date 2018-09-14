@@ -4,199 +4,72 @@
 
 本实验涉及到了以下课程上提到的知识点：
 
-1. 禁用中断的同步方法
-2. 信号量
-3. 条件变量和管程
-4. 哲学家就餐问题
+1. 管道
+2. 文件系统和文件
+3. VFS
+4. inode
+5. 文件描述符
 
 本实验涉及的其他知识点：
 
-   无
+1. ucore的文件系统架构
 
 OS原理中很重要，但在实验中没有对应上的知识点：
 
-1. 软件实现的同步方法
-2. 读者-写着问题
-3. 基于硬件指令（如test and set）的同步方法
+1. RAID
+2. I/O子系统
 
 ## 练习0
 
-在复制了lab1-6的代码之后，需要做一些修改，包括：
+在复制了lab1-7的代码之后，需要做一些修改，包括：
 
-`trap.c`:
+`proc.c`: 
 
-将`sched_class_proc_tick(current)`改为`run_timer_list()`
+1. `alloc_proc` 初始化新增的成员变量，但是我用的是memset，故无需修改
+2. `do_fork` 使用 `copy_files` 复制旧进程打开的文件
 
 ## 练习1
 
-#### 理解内核级信号量的实现和基于内核级信号量的哲学家就餐问题
+#### 完成读文件操作的实现
 
-##### 信号量的实现
+在实现过程中，主要修改的是`sfs_io_nolock`的代码，该函数的功能是给定一个文件的`inode`以及需要读写的偏移量和大小，转换成数据块级别的读写操作。主要调用的是两个函数：
 
-信号量的实现中，定义了结构体`semaphore_t`，用来保存信号值value和等待队列wait_queue。对信号量有如下操作：
+- `sfs_bmap_load_nolock`: 该函数能够将文件数据块的便宜转换成硬盘空间块的数据块编号；
+- `sfs_block_op` / `sfs_buff_op`：该函数接受硬盘空间数据块编号，并进行读写操作；
 
-`sem_init`: 初始化value为对应的值，并且初始化等待队列
+当然，用户希望读取的文件大小和偏移并非是和数据块一一对齐的，因此在边界情况的时候需要特殊处理，这也是这个实验的要点所在，需要判断偏移的开头未对齐部分和结尾未对齐部分专门进行处理，而中间部分则调用对齐的`block`级别操作进行处理。
 
-`down`: 对应课堂上讲的P()操作。具体实现和注释如下：
+实际上，跟踪函数`sfs_buff_op`的调用可以得知：该函数在进行设备操作的时候也是以块为单位的。如果要读取一个块内的小部分数据，就必须将数据块整体读出或整体写入。这与原理相关的部分也是契合的。
 
-```c
-bool intr_flag;
-// 关中断来保证原子性
-local_intr_save(intr_flag);
-// 首先判断value是否大于0，是的话就减1并返回
-if (sem->value > 0) {
-    sem->value --;
-    local_intr_restore(intr_flag);
-    return 0;
-}
-// 否则将当前线程放入等待队列
-wait_t __wait, *wait = &__wait;
-wait_current_set(&(sem->wait_queue), wait, wait_state);
-local_intr_restore(intr_flag);
-// 然后进行调度
-schedule();
+#### UNIX的PIPE机制 
 
-// 调度回来
-local_intr_save(intr_flag);
-// 将自己从等待队列中移出
-wait_current_del(&(sem->wait_queue), wait);
-local_intr_restore(intr_flag);
-// 等待flag未变化，说明获得了信号量，否则是由于其他原因唤醒的
-if (wait->wakeup_flags != wait_state) {
-    return wait->wakeup_flags;
-}
-return 0;
-```
+管道是UNIX进程通讯的一种重要机制。管道文件可以映射到内存当中。
 
-`up`: 对应V()操作。
-
-```c
-bool intr_flag;
-// 关中断来保证原子性
-local_intr_save(intr_flag);
-{
-    wait_t *wait;
-    // 没有进程在等待队列中，直接将value+1
-    if ((wait = wait_queue_first(&(sem->wait_queue))) == NULL) {
-        sem->value ++;
-    }
-    // 否则唤醒等待队列中的第一个进程
-    else {
-        assert(wait->proc->wait_state == wait_state);
-        wakeup_wait(&(sem->wait_queue), wait, wait_state, 1);
-    }
-}
-local_intr_restore(intr_flag);
-```
-
-##### 哲学家就餐问题
-
-lab7的代码不同于课堂上讲的任何一种方式，但是也能解决问题。代码定义了mutex用于保护临界区，以及s[5]代表哲学家是否能够开始就餐。
-
-哲学家想要就餐的时候，会调用`phi_take_forks_sema `，在函数当中，首先记录该哲学家饥饿，然后进行`phi_test_sema `。`phi_test_sema `用于检查哲学家是否能开始就餐，如果能，那么将s[i]设置为1，并返回，否则直接返回。回到上一层函数，如果`phi_test_sema `将s[i]设为1，那么`down`就无需等待，相当于开始就餐；否则会将当前进程加入等待列表。
-
-随后调用`phi_put_forks_sema `表示结束就餐，并对左右邻居调用`phi_test_sema `，若能够就餐，那么`up`会将由于`down`阻塞邻居唤醒，使他们开始就餐。
-
-#### 给用户态进程/线程提供条件变量机制的设计方案 
-
-可以增加一些系统调用，分别包装以下函数：
-
-- sem_init: 初始化一个信号量，参数为value的初始值，并返回信号量的编号（出于安全考虑，不能返回指针）
-- down: 参数为信号量id，相当于P操作，可能进入阻塞状态
-- up: 参数为信号量id，相当于V操作
-- 新增一个函数用于释放信号量
+要实现PIPE机制，需要增加相关的系统调用（例如`SYS_pipe`），此后就可以统一的使用`write`和`read`接口进行读和写操作了。对于管道写入端进程，需要将管道文件设置为其stdout；对读出端进程，则设置为stdin。具体到uCore的实现，可以在`sfs_inode`数据结构中增加特殊的标记位确定是不是管道文件，同时增加两个信号量用于进行类似“生产者-消费者”问题的同步互斥控制。
 
 ## 练习2
 
-#### 完成内核级条件变量和基于内核级条件变量的哲学家就餐问题
+#### 完成基于文件系统的执行程序机制的实现
 
-内核态的管程机制通过Hoare管程实现，每次进入和退出的时候都需要执行
+相比Lab7，`load_icode`函数的参数有了较大的变化：首先，读取ELF文件不再从内存中读取，而是通过已经实现好的文件系统的`read`操作进行硬盘文件读取；其次，加入了任意大小参数`argc`和`argv`的功能，使得应用程序能够接受命令行参数输入。
 
-```c
-//进入
-down(&(mtp->mutex));
-//退出
-if(mtp->next_count>0)
-    up(&(mtp->next));
-else
-    up(&(mtp->mutex));
-```
+针对ELF文件的硬盘读取方式，主要是通过调用`load_icode_read`函数完成，该函数又在文件系统之上调用了`read`和`seek`函数，基于SFS对文件进行读取和寻址操作，在实现的时候，需要依次将ELF头，`program header`以及真正的各个代码段数据段读入内存。
 
-相当于课堂上讲的lock->acquire(), lock->release()。
+而对于命令行参数的实现，则是直接将相关的字符串拷贝到用户栈的顶端，并将最开始的栈指针放在`argc`的起始地址即可。需要注意的是，用户态的`initcode.S`和`umain.c`也需要做相应的改动，为了能够使得参数顺利传送到`main`函数中，需要将参数寄存器设置为`argc`和`argv`的地址。
 
-monitor的结构体如下
+#### UNIX的硬链接和软链接机制 
 
-```c
-typedef struct monitor{
-    semaphore_t mutex;//管程锁      
-    semaphore_t next; //记录阻塞的signal进程
-    int next_count;   
-    condvar_t *cv;    
-} monitor_t;
-```
+##### 硬链接
 
-条件变量的两个函数wait, signal的注释如下
+在创建时将目录项的名字设定为给定的名字，目录项的inode设置为链接目标的inode号即可，还需要增加链接目标的引用计数。删除的时候，减少链接目标的引用计数，归零的时候，删除链接目标。
 
-```c
-void cond_signal (condvar_t *cvp) {
-    //如果有进程在等待条件变量
-    if(cvp->count > 0) {
-        //将自己放在next当中, 保证进程执行完毕或wait的时候能切回自己
-        cvp->owner->next_count++;
-        //唤醒等待进程
-        up(&cvp->sem);
-        down(&cvp->owner->next);
-        cvp->owner->next_count--;
-    }
-}
+##### 软链接
 
-void cond_wait (condvar_t *cvp) {
-    //等待队列长度+1
-    cvp->count++;
-    //如果有阻塞在signal的进程, 则优先唤醒, 否则解除mutex锁
-    if(cvp->owner->next_count > 0)
-        up(&cvp->owner->next);
-    else
-        up(&cvp->owner->mutex);
-    //请求条件变量
-    down(&cvp->sem);
-    cvp->count--;
-}
-```
+可以看做一种特殊的文件，文件的数据为目标文件/目录的路径。
 
-##### 与参考答案的区别
+创建的时候，需要将文件类型设置为软链接，并将其指向目标文件路径。
 
-因为伪代码已经很详细了，所以逻辑上完全一致
+删除时跟普通文件相同。
 
-#### 用户态进程/线程提供条件变量机制的设计方案 
-
-由于signal, wait操作都只需要调用信号量的接口，不需要其他的内核态特权，因此可以通过调用练习1当中提到的信号量的系统调用来实现用户带的条件变量。
-
-#### 能否不用基于信号量机制来完成条件变量 
-
-可以直接模仿课堂的设计来实现，但是需要锁机制的支持。假设有一个锁的结构体`Lock`支持`acquire, release`操作，那么可以如下实现：
-
-```c++
-class Condition {
-    int numWait = 0;
-    WaitQueue q;
-    void wait(Lock& lock) {
-        numWait++;
-        q.add(current_thread);
-        lock.release();
-        schedule();
-        lock.require();
-    }
-    void signal(Lock& lock) {
-        if(numWait > 0) {
-            t = q.head();
-            q.remove(t);
-            wakeup(t);
-            numWait--;
-        }
-    }
-};
-```
-
-
+在访问目录的时候需要做特殊处理，如果是软链接，则需要转移到目标路径。
 
